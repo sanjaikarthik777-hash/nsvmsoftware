@@ -136,6 +136,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     phone: '',
     email: '',
     gstNumber: '',
+    logo: '',
   };
   const cu = quotation.customer || { name: 'Customer', phone: '', billingAddress: '' };
   const pr = quotation.project || { name: 'Project', siteLocation: '' };
