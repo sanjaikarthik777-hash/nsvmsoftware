@@ -140,8 +140,8 @@ export const NewQuotation: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab Switcher for Mobile Devices */}
-      <div className="md:hidden flex border-b border-slate-200 bg-white rounded-lg p-1.5 gap-1.5 shadow-2xs no-print">
+      {/* Tab Switcher for Mobile & Tablet Devices */}
+      <div className="lg:hidden flex border-b border-slate-200 bg-white rounded-lg p-1.5 gap-1.5 shadow-2xs no-print">
         <button
           onClick={() => setActiveTab('form')}
           className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
@@ -167,10 +167,10 @@ export const NewQuotation: React.FC = () => {
       </div>
 
       {/* Main Workspace Panels */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-        {/* LEFT: Input Form (Full width on mobile if 'form' active, hidden on mobile if 'preview' active) */}
-        <div className={`md:col-span-6 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs no-print ${
-          activeTab === 'form' ? 'block' : 'hidden md:block'
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* LEFT: Input Form (Full width on mobile/tablet if 'form' active) */}
+        <div className={`lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 shadow-2xs no-print ${
+          activeTab === 'form' ? 'block' : 'hidden lg:block'
         }`}>
           <QuotationForm 
             onSuccess={handleSuccess} 
@@ -179,9 +179,9 @@ export const NewQuotation: React.FC = () => {
           />
         </div>
 
-        {/* RIGHT: A4 Live Preview (Full width on mobile if 'preview' active, hidden on mobile if 'form' active) */}
-        <div className={`md:col-span-6 bg-slate-100 border border-slate-200 rounded-xl overflow-hidden shadow-inner sticky top-24 ${
-          activeTab === 'preview' ? 'block' : 'hidden md:block'
+        {/* RIGHT: A4 Live Preview (Full width on mobile/tablet if 'preview' active) */}
+        <div className={`lg:col-span-6 bg-slate-100 border border-slate-200 rounded-xl overflow-hidden shadow-inner sticky top-24 ${
+          activeTab === 'preview' ? 'block' : 'hidden lg:block'
         }`}>
           <QuotationPreview data={formData} elementId="new-quotation-preview" />
         </div>

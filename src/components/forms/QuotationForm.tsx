@@ -15,9 +15,7 @@ import {
   ArrowUp, 
   ArrowDown, 
   Save,
-  Copy,
-  Sparkles,
-  ChevronDown
+  Copy
 } from 'lucide-react';
 import { DEFAULT_SETTINGS } from '../../db/dexie';
 
@@ -27,63 +25,7 @@ interface QuotationFormProps {
   onWatch?: (data: Partial<Quotation>) => void;
 }
 
-// Preset Work / Material Templates for Fast Item Insertion
-const PRESET_TEMPLATES = [
-  {
-    name: 'MS Main Gate',
-    description: 'Fabrication & installation of MS Main Gate with anti-rust primer coat',
-    material: 'MS Tubular & Sheet',
-    unit: 'Sq.ft',
-    rate: 350
-  },
-  {
-    name: 'Window Safety Grill',
-    description: 'Fabrication & fixing of MS Window Safety Grill (Square Bar 12mm)',
-    material: 'MS Square Bar 12mm',
-    unit: 'Sq.ft',
-    rate: 180
-  },
-  {
-    name: 'SS Balcony Railing',
-    description: 'SS 304 Grade Stainless Steel Balcony Railing with 10mm Toughened Glass',
-    material: 'SS 304 & Glass',
-    unit: 'Running ft',
-    rate: 1200
-  },
-  {
-    name: 'Staircase Handrail',
-    description: 'SS 304 Pipe Staircase Handrail with decorative balusters',
-    material: 'SS 304 Pipe 2"',
-    unit: 'Running ft',
-    rate: 650
-  },
-  {
-    name: 'Shed Roofing Structure',
-    description: 'Heavy Industrial/Domestic Shed Structure with Color Coated Profile Sheet',
-    material: 'MS Truss & Profile Sheet',
-    unit: 'Sq.ft',
-    rate: 220
-  },
-  {
-    name: 'Safety Door Frame',
-    description: 'MS Safety Door with CNC Laser Cut Design Plate and Mortise Lock fitting',
-    material: 'MS CNC Plate 2.5mm',
-    unit: 'Nos',
-    rate: 14500
-  }
-];
 
-// Quick Material Suggestions
-const COMMON_MATERIALS = [
-  'MS (Mild Steel)',
-  'SS 304',
-  'SS 316',
-  'Aluminum',
-  'Toughened Glass',
-  'GI Sheet',
-  'ACP Sheet',
-  'Wood / Plywood'
-];
 
 export const QuotationForm: React.FC<QuotationFormProps> = ({ onSuccess, onCancel, onWatch }) => {
   const { 
@@ -97,7 +39,6 @@ export const QuotationForm: React.FC<QuotationFormProps> = ({ onSuccess, onCance
   } = useQuotationStore();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [showPresetsMenu, setShowPresetsMenu] = useState(false);
   const currentSettings = settings || DEFAULT_SETTINGS;
 
   // Initialize form
@@ -282,24 +223,7 @@ export const QuotationForm: React.FC<QuotationFormProps> = ({ onSuccess, onCance
     toast.success('Row duplicated');
   };
 
-  // Apply quick preset template item
-  const handleApplyPreset = (preset: typeof PRESET_TEMPLATES[0]) => {
-    append({
-      id: crypto.randomUUID(),
-      description: preset.description,
-      length: null,
-      width: null,
-      height: null,
-      area: null,
-      material: preset.material,
-      quantity: 1,
-      unit: preset.unit,
-      rate: preset.rate,
-      amount: preset.rate
-    });
-    setShowPresetsMenu(false);
-    toast.success(`Added ${preset.name}`);
-  };
+
 
   // Terms and conditions inline state
   const [newTermText, setNewTermText] = useState('');
@@ -519,42 +443,6 @@ export const QuotationForm: React.FC<QuotationFormProps> = ({ onSuccess, onCance
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Quick Add Presets Menu */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowPresetsMenu(!showPresetsMenu)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Sparkles className="h-3.5 w-3.5 text-purple-600" />
-                Quick Presets
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </button>
-
-              {showPresetsMenu && (
-                <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-2 space-y-1">
-                  <div className="px-2 py-1 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Add Common Fabrication Work
-                  </div>
-                  {PRESET_TEMPLATES.map((preset, pIdx) => (
-                    <button
-                      key={pIdx}
-                      type="button"
-                      onClick={() => handleApplyPreset(preset)}
-                      className="w-full text-left px-2.5 py-2 hover:bg-slate-50 rounded-lg transition-colors flex flex-col group cursor-pointer"
-                    >
-                      <span className="text-xs font-bold text-slate-800 group-hover:text-purple-700">
-                        {preset.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400 line-clamp-1">
-                        {preset.material} • ₹{preset.rate}/{preset.unit}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* Add Custom Item */}
             <Button
               type="button"
@@ -711,19 +599,7 @@ export const QuotationForm: React.FC<QuotationFormProps> = ({ onSuccess, onCance
                         {...register(`items.${idx}.material` as const)}
                         className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-slate-500"
                       />
-                      {/* Material Quick Pick Chips */}
-                      <div className="flex flex-wrap gap-1">
-                        {COMMON_MATERIALS.slice(0, 3).map((mat, mIdx) => (
-                          <button
-                            key={mIdx}
-                            type="button"
-                            onClick={() => setValue(`items.${idx}.material`, mat)}
-                            className="text-[9px] px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded cursor-pointer transition-colors"
-                          >
-                            {mat}
-                          </button>
-                        ))}
-                      </div>
+
                     </td>
 
                     {/* Qty */}
