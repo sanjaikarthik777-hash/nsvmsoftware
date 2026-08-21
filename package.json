@@ -34,8 +34,5 @@
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
     "vite-plugin-pwa": "^1.3.0"
-  },
-  "overrides": {
-    "html2canvas": "npm:html2canvas-pro@latest"
   }
 }
