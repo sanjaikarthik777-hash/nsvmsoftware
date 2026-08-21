@@ -97,7 +97,6 @@ export const QuotationPreview: React.FC<QuotationPreviewProps> = ({ data, elemen
           ref={a4Ref}
           id={elementId}
           className="w-[210mm] min-h-[297mm] bg-white text-slate-900 shadow-lg p-10 font-sans flex flex-col justify-between box-border border border-slate-200 select-none text-[12px] leading-relaxed"
-          style={{ contentVisibility: 'auto' }}
         >
           <div>
             {/* Header: Company Profile */}
