@@ -185,16 +185,17 @@ export const Quotations: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Hidden container for PDF rendering — fixed position ensures html2canvas
-          can always find/capture it regardless of scroll position on mobile */}
+      {/* Hidden container for PDF rendering with explicit A4 width */}
       {pdfGeneratingQuotation && (
         <div
           style={{
             position: 'fixed',
-            top: '-9999px',
-            left: '-9999px',
+            top: '0',
+            left: '0',
+            width: '794px',
+            opacity: 0,
             pointerEvents: 'none',
-            zIndex: -1,
+            zIndex: -99999,
           }}
         >
           <QuotationPreview data={pdfGeneratingQuotation} elementId="hidden-history-pdf" />

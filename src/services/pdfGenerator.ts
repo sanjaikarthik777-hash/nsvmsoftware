@@ -1,10 +1,11 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 
-// Fetch the logo and convert to base64 for embedding in PDFs when needed
-async function urlToBase64(url: string): Promise<string> {
+// Fetch the logo and convert to base64 for embedding when needed
+export async function urlToBase64(url: string): Promise<string> {
   try {
     const response = await fetch(url);
+    if (!response.ok) return '';
     const blob = await response.blob();
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -17,55 +18,106 @@ async function urlToBase64(url: string): Promise<string> {
   }
 }
 
+/**
+ * Robust, mobile-safe PDF generator.
+ *
+ * Rather than capturing an in-place element that may be:
+ * - CSS transform-scaled (on mobile screen size)
+ * - Inside a hidden tab (`display: none`)
+ * - Clipped by overflow or off-screen culling
+ *
+ * This function clones the target A4 element into a dedicated, standard-width (794px / 210mm)
+ * off-screen rendering container attached to document.body. It ensures all fonts and images
+ * are loaded before triggering html2canvas at 2× scale, slices the canvas per A4 page cleanly,
+ * validates the output blob, and triggers a mobile-compatible download.
+ */
 export async function downloadQuotationPdf(elementId: string, filename: string): Promise<void> {
-  const element = document.getElementById(elementId);
-  if (!element) {
-    throw new Error('Preview element not found');
+  const sourceElement = document.getElementById(elementId);
+  if (!sourceElement) {
+    throw new Error(`Preview element #${elementId} not found in DOM`);
   }
 
-  // ─── Step 1: Temporarily force full-scale rendering ───────────────────────
-  // The preview uses CSS transform:scale() for responsive display.
-  // html2canvas captures the element AS RENDERED — so on mobile (scale ~0.4)
-  // the captured image is tiny / almost blank.
-  // We temporarily reset the transform so html2canvas always sees the full A4.
-  const scaleWrapper = element.parentElement as HTMLElement | null;
-  const originalTransform = scaleWrapper?.style.transform ?? '';
-  const originalTransformOrigin = scaleWrapper?.style.transformOrigin ?? '';
-  const originalPosition = scaleWrapper?.style.position ?? '';
+  // ─── Step 1: Create dedicated standard A4 render host on document.body ────
+  const A4_WIDTH_PX = 794; // 210mm at 96 DPI
+  const A4_MIN_HEIGHT_PX = 1123; // 297mm at 96 DPI
 
-  if (scaleWrapper) {
-    scaleWrapper.style.transform = 'scale(1)';
-    scaleWrapper.style.transformOrigin = 'top left';
-    // Ensure the wrapper is visible to html2canvas even when off-screen
-    scaleWrapper.style.position = 'fixed';
-  }
+  const renderHost = document.createElement('div');
+  renderHost.id = 'pdf-render-host-temp';
+  renderHost.style.position = 'fixed';
+  renderHost.style.top = '0';
+  renderHost.style.left = '0';
+  renderHost.style.width = `${A4_WIDTH_PX}px`;
+  renderHost.style.minHeight = `${A4_MIN_HEIGHT_PX}px`;
+  renderHost.style.zIndex = '-99999';
+  renderHost.style.opacity = '1';
+  renderHost.style.pointerEvents = 'none';
+  renderHost.style.overflow = 'visible';
+  renderHost.style.transform = 'none';
+  renderHost.style.backgroundColor = '#ffffff';
 
-  // Also temporarily remove contentVisibility:auto which skips off-screen rendering
-  const originalContentVisibility = element.style.contentVisibility;
-  element.style.contentVisibility = 'visible';
+  // Clone source element
+  const clone = sourceElement.cloneNode(true) as HTMLElement;
+  clone.id = `${elementId}-clone`;
+  clone.style.width = `${A4_WIDTH_PX}px`;
+  clone.style.minHeight = `${A4_MIN_HEIGHT_PX}px`;
+  clone.style.transform = 'none';
+  clone.style.margin = '0';
+  clone.style.boxSizing = 'border-box';
+  clone.style.display = 'flex';
+  clone.style.flexDirection = 'column';
+  clone.style.visibility = 'visible';
+  clone.style.contentVisibility = 'visible';
 
-  // Allow two animation frames so the browser applies the style change before capturing
-  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  renderHost.appendChild(clone);
+  document.body.appendChild(renderHost);
 
   try {
-    // ─── Step 2: Capture the element at 2× resolution ─────────────────────
-    const canvas = await html2canvas(element, {
-      scale: 2,              // 2× for crisp text on retina / high-DPI screens
+    // ─── Step 2: Ensure fonts and images inside clone are fully loaded ────────
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
+
+    const images = Array.from(clone.querySelectorAll('img'));
+    await Promise.all(
+      images.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            if (img.complete && img.naturalHeight !== 0) {
+              resolve();
+            } else {
+              img.onload = () => resolve();
+              img.onerror = () => resolve(); // continue even if image fails
+            }
+          })
+      )
+    );
+
+    // Wait 2 animation frames for browser layout & paint
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    );
+
+    // Measure total rendered height of the clone
+    const cloneHeight = Math.max(clone.scrollHeight, clone.offsetHeight, A4_MIN_HEIGHT_PX);
+
+    // ─── Step 3: Capture clone with html2canvas at 2× resolution ──────────────
+    const canvas = await html2canvas(clone, {
+      scale: 2,
       useCORS: true,
       logging: false,
       allowTaint: false,
       backgroundColor: '#ffffff',
-      // Capture the full scrollHeight so nothing is clipped
-      height: element.scrollHeight,
-      windowHeight: element.scrollHeight,
+      width: A4_WIDTH_PX,
+      height: cloneHeight,
+      windowWidth: A4_WIDTH_PX,
+      windowHeight: cloneHeight,
     });
 
-    // Validate canvas has content
-    if (canvas.width === 0 || canvas.height === 0) {
-      throw new Error('Captured canvas is empty');
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+      throw new Error('Canvas render produced empty dimensions');
     }
 
-    // ─── Step 3: Build the PDF, slicing the canvas per A4 page ───────────
+    // ─── Step 4: Build multi-page A4 PDF using clean canvas slicing ───────────
     const pdf = new jsPDF({
       unit: 'mm',
       format: 'a4',
@@ -73,25 +125,25 @@ export async function downloadQuotationPdf(elementId: string, filename: string):
     });
 
     const margin = 10; // mm
-    const pageWidth  = pdf.internal.pageSize.getWidth();   // 210 mm
-    const pageHeight = pdf.internal.pageSize.getHeight();  // 297 mm
-    const printableW = pageWidth  - margin * 2;            // 190 mm
-    const printableH = pageHeight - margin * 2;            // 277 mm
+    const pageWidth = pdf.internal.pageSize.getWidth(); // 210 mm
+    const pageHeight = pdf.internal.pageSize.getHeight(); // 297 mm
+    const printableW = pageWidth - margin * 2; // 190 mm
+    const printableH = pageHeight - margin * 2; // 277 mm
 
-    // How many canvas pixels represent one page's printable height?
-    const pxPerMm   = canvas.width / printableW;
-    const pageHPx   = Math.round(printableH * pxPerMm);   // canvas pixels per page
+    // Number of canvas pixels corresponding to one printable page height
+    const pxPerMm = canvas.width / printableW;
+    const pageHPx = Math.round(printableH * pxPerMm);
     const totalPages = Math.ceil(canvas.height / pageHPx);
 
     for (let page = 0; page < totalPages; page++) {
       if (page > 0) pdf.addPage();
 
-      const srcY      = page * pageHPx;
+      const srcY = page * pageHPx;
       const srcHeight = Math.min(pageHPx, canvas.height - srcY);
 
-      // Create an off-screen canvas for this page's slice
-      const sliceCanvas  = document.createElement('canvas');
-      sliceCanvas.width  = canvas.width;
+      // Off-screen slice canvas
+      const sliceCanvas = document.createElement('canvas');
+      sliceCanvas.width = canvas.width;
       sliceCanvas.height = pageHPx;
 
       const ctx = sliceCanvas.getContext('2d')!;
@@ -100,80 +152,84 @@ export async function downloadQuotationPdf(elementId: string, filename: string):
 
       ctx.drawImage(
         canvas,
-        0, srcY,
-        canvas.width, srcHeight,
-        0, 0,
-        canvas.width, srcHeight,
+        0,
+        srcY,
+        canvas.width,
+        srcHeight,
+        0,
+        0,
+        canvas.width,
+        srcHeight
       );
 
       const imgData = sliceCanvas.toDataURL('image/jpeg', 0.95);
       pdf.addImage(imgData, 'JPEG', margin, margin, printableW, printableH);
     }
 
-    // ─── Step 4: Generate blob and validate ───────────────────────────────
+    // ─── Step 5: Validate Blob output ─────────────────────────────────────────
     const pdfBlob = pdf.output('blob');
 
     if (!pdfBlob || pdfBlob.size === 0) {
-      throw new Error('PDF generation failed — empty output');
+      throw new Error('PDF output blob is empty');
     }
 
-    // ─── Step 5: Download with mobile-compatible method ───────────────────
+    // ─── Step 6: Download via universal mobile-friendly mechanism ─────────────
     await downloadBlob(pdfBlob, filename, 'application/pdf');
-
   } catch (error) {
-    console.error('Error generating PDF:', error);
+    console.error('Error in downloadQuotationPdf:', error);
     throw new Error('Unable to generate PDF. Please try again.');
   } finally {
-    // ─── Always restore the original styles ───────────────────────────────
-    if (scaleWrapper) {
-      scaleWrapper.style.transform = originalTransform;
-      scaleWrapper.style.transformOrigin = originalTransformOrigin;
-      scaleWrapper.style.position = originalPosition;
+    // Clean up temporary rendering host from DOM
+    if (renderHost.parentNode) {
+      document.body.removeChild(renderHost);
     }
-    element.style.contentVisibility = originalContentVisibility;
   }
 }
 
 /**
  * Universal blob download helper.
- * On mobile browsers that support the Web Share API with file sharing,
- * we offer the share sheet (so it goes to Files, WhatsApp, etc.).
- * On desktop / unsupported mobile browsers we use a regular anchor download.
+ * Uses Web Share API if on mobile device and supported, otherwise standard <a> click.
  */
-export async function downloadBlob(blob: Blob, filename: string, mimeType: string): Promise<void> {
-  const file = new File([blob], filename, { type: mimeType });
+export async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  mimeType: string
+): Promise<void> {
+  const url = URL.createObjectURL(blob);
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // Try Web Share API (works on Android Chrome, iOS Safari 15.1+)
   if (
+    isMobile &&
     typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function' &&
-    navigator.canShare({ files: [file] })
+    typeof navigator.canShare === 'function'
   ) {
     try {
-      await navigator.share({ files: [file], title: filename });
-      return; // success via share sheet
-    } catch (err: any) {
-      // User cancelled the share dialog — fall through to anchor download
-      if (err?.name === 'AbortError') {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename });
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
         return;
       }
-      // Other share errors — fall through to anchor download
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return;
+      }
     }
   }
 
-  // Standard anchor-based download (desktop + most mobile browsers)
-  const url = URL.createObjectURL(blob);
+  // Standard fallback
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
 
-  // Revoke after a short delay so the browser has time to start the download
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  setTimeout(() => {
+    if (a.parentNode) {
+      document.body.removeChild(a);
+    }
+    URL.revokeObjectURL(url);
+  }, 3000);
 }
-
-// Re-export urlToBase64 for use in docxGenerator
-export { urlToBase64 };

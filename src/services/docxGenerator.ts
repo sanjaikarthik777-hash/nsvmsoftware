@@ -16,7 +16,7 @@ import {
 import { Quotation } from '../types/quotation';
 import { formatCurrency, formatDate, numberToWords } from '../utils/formatting';
 import { calculateQuotationTotals } from '../utils/calculations';
-import { downloadBlob, urlToBase64 } from './pdfGenerator';
+import { downloadBlob } from './pdfGenerator';
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const COLOR_PRIMARY   = '0F172A'; // dark slate (navy)
@@ -28,9 +28,9 @@ const COLOR_WHITE     = 'FFFFFF';
 const COLOR_EMERALD   = '065F46'; // balance outstanding green-dark
 const COLOR_ROSE      = '9F1239'; // discount/rose
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 type DocxAlignment = (typeof AlignmentType)[keyof typeof AlignmentType];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function txt(text: string, opts: {
   bold?: boolean;
@@ -71,25 +71,46 @@ const bdrNone = { style: BorderStyle.NONE, size: 0, color: 'auto' };
 const bdrThin = { style: BorderStyle.SINGLE, size: 4, color: COLOR_BORDER };
 const bdrThick = { style: BorderStyle.SINGLE, size: 8, color: COLOR_PRIMARY };
 
-// Cell borders without table-level inside properties
 const cellBdrNone = { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrNone };
 const cellBdrBottom = { top: bdrNone, bottom: bdrThin, left: bdrNone, right: bdrNone };
 
-// Fetch logo as ArrayBuffer for ImageRun
-async function fetchLogoBuffer(): Promise<ArrayBuffer | null> {
+/**
+ * Robust, browser-safe logo loader for DOCX ImageRun.
+ * Returns an ArrayBuffer of the logo, or null if unavailable.
+ */
+async function fetchLogoBuffer(logoData?: string): Promise<ArrayBuffer | null> {
   try {
-    const b64 = await urlToBase64('/icons/nsvm-logo.png');
-    if (!b64) return null;
-    const base64Data = b64.split(',')[1];
-    if (!base64Data) return null;
-    const binary = atob(base64Data);
-    const buffer = new ArrayBuffer(binary.length);
-    const view = new Uint8Array(buffer);
-    for (let i = 0; i < binary.length; i++) {
-      view[i] = binary.charCodeAt(i);
+    // 1. If logo is a base64 data URL
+    if (logoData && logoData.startsWith('data:')) {
+      const commaIndex = logoData.indexOf(',');
+      if (commaIndex !== -1) {
+        const base64Str = logoData.slice(commaIndex + 1);
+        const binary = atob(base64Str);
+        const buffer = new ArrayBuffer(binary.length);
+        const view = new Uint8Array(buffer);
+        for (let i = 0; i < binary.length; i++) {
+          view[i] = binary.charCodeAt(i);
+        }
+        return buffer;
+      }
     }
-    return buffer;
-  } catch {
+
+    // 2. Fetch directly from public icons
+    const candidates = ['/icons/nsvm-logo.png', '/nsvm-logo.png'];
+    for (const url of candidates) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          return await res.arrayBuffer();
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('Could not load logo for DOCX, continuing without logo:', err);
     return null;
   }
 }
@@ -98,30 +119,42 @@ async function fetchLogoBuffer(): Promise<ArrayBuffer | null> {
 
 export async function downloadQuotationDocx(quotation: Quotation): Promise<void> {
   const totals = calculateQuotationTotals({
-    items: quotation.items,
-    labour: quotation.labour,
-    installation: quotation.installation,
-    discount: quotation.discount,
-    discountType: quotation.discountType,
-    gstPercentage: quotation.gst,
-    gstEnabled: quotation.gstEnabled,
-    advance: quotation.advance,
+    items: quotation.items || [],
+    labour: quotation.labour || 0,
+    installation: quotation.installation || 0,
+    discount: quotation.discount || 0,
+    discountType: quotation.discountType || 'percentage',
+    gstPercentage: quotation.gst || 0,
+    gstEnabled: quotation.gstEnabled || false,
+    advance: quotation.advance || 0,
   });
 
-  const co = quotation.company;
-  const cu = quotation.customer;
-  const pr = quotation.project;
+  const co = quotation.company || {
+    companyName: 'NSVM INDUSTRIES',
+    tagline: 'Quality Fabrication & Engineering Works',
+    address: '',
+    phone: '',
+    email: '',
+    gstNumber: '',
+  };
+  const cu = quotation.customer || { name: 'Customer', phone: '', billingAddress: '' };
+  const pr = quotation.project || { name: 'Project', siteLocation: '' };
 
   // ── Load logo ──────────────────────────────────────────────────────────────
-  const logoBuffer = await fetchLogoBuffer();
-  const logoRun = logoBuffer
-    ? new ImageRun({
+  const logoBuffer = await fetchLogoBuffer(co.logo);
+  let logoRun: ImageRun | null = null;
+  if (logoBuffer) {
+    try {
+      logoRun = new ImageRun({
         type: 'png',
         data: logoBuffer,
         transformation: { width: 120, height: 80 },
-        floating: undefined,
-      })
-    : null;
+      });
+    } catch (e) {
+      console.warn('ImageRun creation failed:', e);
+      logoRun = null;
+    }
+  }
 
   // ── Section 1 ─ Company Header ─────────────────────────────────────────────
   const headerTable = new Table({
@@ -140,11 +173,11 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
             children: [
               para([txt(co.companyName, { bold: true, size: 18, color: COLOR_PRIMARY })], { spaceAfter: 40 }),
               ...(co.tagline ? [para([txt(co.tagline, { italic: true, size: 9, color: COLOR_SECONDARY })], { spaceAfter: 40 })] : []),
-              para([txt(co.address, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 30 }),
+              para([txt(co.address || '', { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 30 }),
               para([
-                txt(`Phone: ${co.phone}`, { size: 9, color: COLOR_SECONDARY }),
+                txt(`Phone: ${co.phone || 'N/A'}`, { size: 9, color: COLOR_SECONDARY }),
                 txt('   |   ', { size: 9, color: COLOR_BORDER }),
-                txt(`Email: ${co.email}`, { size: 9, color: COLOR_SECONDARY }),
+                txt(`Email: ${co.email || 'N/A'}`, { size: 9, color: COLOR_SECONDARY }),
               ], { spaceAfter: 30 }),
               ...(co.gstNumber
                 ? [para([txt('GSTIN: ', { bold: true, size: 9 }), txt(co.gstNumber, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 0 })]
@@ -194,7 +227,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
             shading: { type: ShadingType.SOLID, fill: COLOR_BG_LIGHT },
             borders: { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrThin },
             children: [
-              para([txt('Quotation No: ', { bold: true, size: 9.5 }), txt(quotation.quotationNumber, { size: 9.5 })], { spaceAfter: 30 }),
+              para([txt('Quotation No: ', { bold: true, size: 9.5 }), txt(quotation.quotationNumber || 'Draft', { size: 9.5 })], { spaceAfter: 30 }),
               para([txt('Quotation Date: ', { bold: true, size: 9.5 }), txt(formatDate(quotation.date), { size: 9.5 })], { spaceAfter: 30 }),
               para([txt('Valid Until: ', { bold: true, size: 9.5 }), txt(formatDate(quotation.validUntil), { size: 9.5 })], { spaceAfter: 0 }),
             ],
@@ -205,7 +238,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
             borders: cellBdrNone,
             children: [
               para([txt('Prepared By: ', { bold: true, size: 9.5 }), txt(quotation.preparedBy || 'N/A', { size: 9.5 })], { spaceAfter: 30 }),
-              para([txt('Project / Work: ', { bold: true, size: 9.5 }), txt(pr.name, { size: 9.5 })], { spaceAfter: 0 }),
+              para([txt('Project / Work: ', { bold: true, size: 9.5 }), txt(pr.name || 'N/A', { size: 9.5 })], { spaceAfter: 0 }),
             ],
           }),
         ],
@@ -245,7 +278,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
             width: { size: 50, type: WidthType.PERCENTAGE },
             borders: { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrThin },
             children: [
-              para([txt(cu.name, { bold: true, size: 10 })], { spaceAfter: 40 }),
+              para([txt(cu.name || 'N/A', { bold: true, size: 10 })], { spaceAfter: 40 }),
               ...(cu.phone ? [para([txt('Phone: ', { bold: true, size: 9, color: COLOR_SECONDARY }), txt(cu.phone, { size: 9 })], { spaceAfter: 30 })] : []),
               ...(cu.billingAddress ? [para([txt(cu.billingAddress, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 0 })] : []),
             ],
@@ -287,17 +320,18 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     ],
   });
 
-  const itemRows: TableRow[] = quotation.items.map((item, idx) => {
+  const items = quotation.items || [];
+  const itemRows: TableRow[] = items.map((item, idx) => {
     let dimStr = '-';
     if (item.length !== null || item.width !== null || item.height !== null) {
       const parts = [
-        item.length !== null ? `${item.length}L` : '',
-        item.width !== null ? `${item.width}W` : '',
-        item.height !== null ? `${item.height}H` : '',
+        item.length !== null && item.length !== undefined ? `${item.length}L` : '',
+        item.width !== null && item.width !== undefined ? `${item.width}W` : '',
+        item.height !== null && item.height !== undefined ? `${item.height}H` : '',
       ].filter(Boolean);
       dimStr = parts.join(' × ');
     }
-    const areaStr = item.area !== null ? `${item.area} ${item.unit}` : '-';
+    const areaStr = item.area !== null && item.area !== undefined ? `${item.area} ${item.unit || ''}` : '-';
     const rowFill = idx % 2 === 1 ? COLOR_BG_LIGHT : COLOR_WHITE;
 
     const dc = (text: string, align: DocxAlignment = AlignmentType.LEFT, bold = false) =>
@@ -310,13 +344,13 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     return new TableRow({
       children: [
         dc(String(idx + 1), AlignmentType.CENTER),
-        dc(item.description, AlignmentType.LEFT, true),
+        dc(item.description || '-', AlignmentType.LEFT, true),
         dc(dimStr, AlignmentType.CENTER),
         dc(areaStr, AlignmentType.RIGHT),
         dc(item.material || '-', AlignmentType.CENTER),
-        dc(`${item.quantity} ${item.unit}`, AlignmentType.CENTER),
-        dc(formatCurrency(item.rate), AlignmentType.RIGHT),
-        dc(formatCurrency(item.amount), AlignmentType.RIGHT, true),
+        dc(`${item.quantity ?? 1} ${item.unit || ''}`, AlignmentType.CENTER),
+        dc(formatCurrency(item.rate || 0), AlignmentType.RIGHT),
+        dc(formatCurrency(item.amount || 0), AlignmentType.RIGHT, true),
       ],
     });
   });
@@ -355,12 +389,12 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     new TableRow({ children: [totalsLabel('Work Subtotal:'), totalsValue(formatCurrency(totals.itemsSubtotal))] }),
 
     // Labour (conditional)
-    ...(quotation.labour > 0
+    ...((quotation.labour || 0) > 0
       ? [new TableRow({ children: [totalsLabel('Labour & Fabrication:'), totalsValue(formatCurrency(quotation.labour))] })]
       : []),
 
     // Installation (conditional)
-    ...(quotation.installation > 0
+    ...((quotation.installation || 0) > 0
       ? [new TableRow({ children: [totalsLabel('Installation & Transport:'), totalsValue(formatCurrency(quotation.installation))] })]
       : []),
 
@@ -373,7 +407,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     }),
 
     // Discount (conditional)
-    ...(quotation.discount > 0
+    ...((quotation.discount || 0) > 0
       ? [new TableRow({
           children: [
             totalsLabel(`Discount (${quotation.discountType === 'percentage' ? `${quotation.discount}%` : 'Fixed'}):`, false, COLOR_WHITE, COLOR_ROSE),
@@ -405,7 +439,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     }),
 
     // Advance received
-    new TableRow({ children: [totalsLabel('Advance Received:', false, COLOR_WHITE, COLOR_EMERALD), totalsValue(formatCurrency(quotation.advance), false, COLOR_WHITE, COLOR_EMERALD)] }),
+    new TableRow({ children: [totalsLabel('Advance Received:', false, COLOR_WHITE, COLOR_EMERALD), totalsValue(formatCurrency(quotation.advance || 0), false, COLOR_WHITE, COLOR_EMERALD)] }),
 
     // Balance outstanding
     new TableRow({
@@ -500,7 +534,7 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
   // ── Assemble Document ─────────────────────────────────────────────────────
   const doc = new Document({
     creator: co.companyName,
-    title: `Quotation ${quotation.quotationNumber}`,
+    title: `Quotation ${quotation.quotationNumber || ''}`,
     description: `Quotation generated by ${co.companyName}`,
     sections: [
       {
@@ -534,6 +568,6 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     throw new Error('Word document generation failed — empty output');
   }
 
-  const filename = `Quotation_${quotation.quotationNumber}.docx`;
+  const filename = `Quotation_${quotation.quotationNumber || 'Draft'}.docx`;
   await downloadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 }
