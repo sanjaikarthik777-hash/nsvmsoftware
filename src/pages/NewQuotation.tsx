@@ -31,6 +31,7 @@ export const NewQuotation: React.FC = () => {
   }, []);
   const [formData, setFormData] = useState<Partial<Quotation>>({});
   const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [isDocxLoading, setIsDocxLoading] = useState(false);
 
   // Success handler after saving
   const handleSuccess = () => {
@@ -48,6 +49,7 @@ export const NewQuotation: React.FC = () => {
 
   // PDF download handler
   const handlePdfDownload = async () => {
+    if (isPdfLoading) return;
     setIsPdfLoading(true);
     try {
       const qNum = formData.quotationNumber || 'Draft';
@@ -55,7 +57,7 @@ export const NewQuotation: React.FC = () => {
       toast.success(`PDF downloaded: ${qNum}`);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to generate PDF');
+      toast.error('Unable to generate PDF. Please try again.');
     } finally {
       setIsPdfLoading(false);
     }
@@ -63,13 +65,20 @@ export const NewQuotation: React.FC = () => {
 
   // DOCX download handler
   const handleDocxDownload = async () => {
-    if (!formData.quotationNumber) return;
+    if (isDocxLoading) return;
+    if (!formData.quotationNumber) {
+      toast.error('Quotation details incomplete');
+      return;
+    }
+    setIsDocxLoading(true);
     try {
       await downloadQuotationDocx(formData as Quotation);
       toast.success(`Word document downloaded: ${formData.quotationNumber}`);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to generate Word document');
+      toast.error('Failed to generate Word document. Please try again.');
+    } finally {
+      setIsDocxLoading(false);
     }
   };
 
@@ -122,6 +131,7 @@ export const NewQuotation: React.FC = () => {
             variant="outline"
             size="sm"
             onClick={handleDocxDownload}
+            isLoading={isDocxLoading}
             icon={<FileText className="h-4 w-4 text-blue-600" />}
             className="flex-1 sm:flex-none"
           >

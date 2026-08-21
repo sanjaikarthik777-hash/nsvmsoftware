@@ -49,6 +49,9 @@ export const Quotations: React.FC = () => {
   const [pdfGeneratingQuotation, setPdfGeneratingQuotation] = useState<Quotation | null>(null);
   const [pdfLoadingId, setPdfLoadingId] = useState<string | null>(null);
 
+  // DOCX loading state (prevents duplicate clicks)
+  const [docxLoadingId, setDocxLoadingId] = useState<string | null>(null);
+
   // Filter logic
   const filteredQuotations = quotations.filter((q) => {
     // 1. Text Search (Matches quotation number, customer name, or project name)
@@ -123,31 +126,38 @@ export const Quotations: React.FC = () => {
 
   // Handle PDF Compile (Hidden DOM Renderer)
   const handlePdfDownload = async (quotation: Quotation) => {
+    if (pdfLoadingId) return; // prevent duplicate
     setPdfLoadingId(quotation.id || null);
     setPdfGeneratingQuotation(quotation);
     
+    // Wait longer (500ms) so the hidden QuotationPreview fully renders
+    // before html2canvas captures it — especially important on slower mobile
     setTimeout(async () => {
       try {
         await downloadQuotationPdf('hidden-history-pdf', `Quotation_${quotation.quotationNumber}.pdf`);
         toast.success(`PDF downloaded: ${quotation.quotationNumber}`);
       } catch (err) {
         console.error(err);
-        toast.error('Failed to generate PDF');
+        toast.error('Unable to generate PDF. Please try again.');
       } finally {
         setPdfGeneratingQuotation(null);
         setPdfLoadingId(null);
       }
-    }, 250);
+    }, 500);
   };
 
   // Handle DOCX download
   const handleDocxDownload = async (quotation: Quotation) => {
+    if (docxLoadingId) return; // prevent duplicate
+    setDocxLoadingId(quotation.id || null);
     try {
       await downloadQuotationDocx(quotation);
       toast.success(`Word document downloaded: ${quotation.quotationNumber}`);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to generate Word document');
+      toast.error('Failed to generate Word document. Please try again.');
+    } finally {
+      setDocxLoadingId(null);
     }
   };
 
@@ -175,9 +185,18 @@ export const Quotations: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Hidden container for PDF rendering */}
+      {/* Hidden container for PDF rendering — fixed position ensures html2canvas
+          can always find/capture it regardless of scroll position on mobile */}
       {pdfGeneratingQuotation && (
-        <div className="absolute top-[-9999px] left-[-9999px] pointer-events-none">
+        <div
+          style={{
+            position: 'fixed',
+            top: '-9999px',
+            left: '-9999px',
+            pointerEvents: 'none',
+            zIndex: -1,
+          }}
+        >
           <QuotationPreview data={pdfGeneratingQuotation} elementId="hidden-history-pdf" />
         </div>
       )}
@@ -369,9 +388,9 @@ export const Quotations: React.FC = () => {
                           {/* PDF */}
                           <button
                             onClick={() => handlePdfDownload(q)}
-                            disabled={pdfLoadingId === q.id}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer disabled:opacity-40"
-                            title="Download PDF"
+                            disabled={!!pdfLoadingId}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={pdfLoadingId === q.id ? 'Generating PDF...' : 'Download PDF'}
                           >
                             <Download className="h-4 w-4" />
                           </button>
@@ -379,8 +398,9 @@ export const Quotations: React.FC = () => {
                           {/* DOCX */}
                           <button
                             onClick={() => handleDocxDownload(q)}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer"
-                            title="Download DOCX Word"
+                            disabled={!!docxLoadingId}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={docxLoadingId === q.id ? 'Generating Word...' : 'Download Word (.docx)'}
                           >
                             <FileText className="h-4 w-4" />
                           </button>
@@ -448,6 +468,8 @@ export const Quotations: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => handlePdfDownload(selectedQuotation)}
+                  isLoading={pdfLoadingId === selectedQuotation.id}
+                  disabled={!!pdfLoadingId || !!docxLoadingId}
                   icon={<Download className="h-4 w-4 text-rose-600" />}
                 >
                   PDF
@@ -456,6 +478,8 @@ export const Quotations: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => handleDocxDownload(selectedQuotation)}
+                  isLoading={docxLoadingId === selectedQuotation.id}
+                  disabled={!!pdfLoadingId || !!docxLoadingId}
                   icon={<FileText className="h-4 w-4 text-blue-600" />}
                 >
                   DOCX
@@ -464,6 +488,7 @@ export const Quotations: React.FC = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => handleWhatsAppShare(selectedQuotation)}
+                  disabled={!!pdfLoadingId || !!docxLoadingId}
                   icon={<MessageSquare className="h-4 w-4 text-emerald-600" />}
                 >
                   WhatsApp

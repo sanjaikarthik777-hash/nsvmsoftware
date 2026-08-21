@@ -1,50 +1,100 @@
-import { 
-  Document, 
-  Packer, 
-  Paragraph, 
-  TextRun, 
-  Table, 
-  TableRow, 
-  TableCell, 
-  AlignmentType, 
-  WidthType, 
-  BorderStyle, 
-  VerticalAlign
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  Table,
+  TableRow,
+  TableCell,
+  AlignmentType,
+  WidthType,
+  BorderStyle,
+  VerticalAlign,
+  ImageRun,
+  ShadingType,
 } from 'docx';
 import { Quotation } from '../types/quotation';
-import { formatCurrency, formatDate } from '../utils/formatting';
+import { formatCurrency, formatDate, numberToWords } from '../utils/formatting';
 import { calculateQuotationTotals } from '../utils/calculations';
+import { downloadBlob, urlToBase64 } from './pdfGenerator';
 
-// Professional styling colors
-const COLOR_PRIMARY = '0F172A';   // Dark Slate
-const COLOR_SECONDARY = '475569'; // Muted Slate
-const COLOR_BORDER = 'E2E8F0';    // Light Gray
-const COLOR_BG_HEADER = 'F8FAFC'; // Off-white/slate-50
-const COLOR_WHITE = 'FFFFFF';
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+const COLOR_PRIMARY   = '0F172A'; // dark slate (navy)
+const COLOR_SECONDARY = '475569'; // muted slate
+const COLOR_ACCENT    = '1E3A5F'; // deep navy accent
+const COLOR_BORDER    = 'CBD5E1'; // slate-300
+const COLOR_BG_LIGHT  = 'F8FAFC'; // slate-50
+const COLOR_WHITE     = 'FFFFFF';
+const COLOR_EMERALD   = '065F46'; // balance outstanding green-dark
+const COLOR_ROSE      = '9F1239'; // discount/rose
 
-// Simple text run helper
-function createTextRun(text: string, options: { bold?: boolean; size?: number; color?: string; italic?: boolean } = {}): TextRun {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+type DocxAlignment = (typeof AlignmentType)[keyof typeof AlignmentType];
+
+function txt(text: string, opts: {
+  bold?: boolean;
+  size?: number;
+  color?: string;
+  italic?: boolean;
+  underline?: boolean;
+} = {}): TextRun {
   return new TextRun({
-    text,
-    bold: options.bold,
-    size: options.size ? options.size * 2 : 20, // docx uses half-points (e.g. 10pt = 20)
-    color: options.color || COLOR_PRIMARY,
-    italics: options.italic
+    text: text ?? '',
+    bold: opts.bold,
+    size: opts.size ? opts.size * 2 : 20, // half-points
+    color: opts.color || COLOR_PRIMARY,
+    italics: opts.italic,
+    underline: opts.underline ? {} : undefined,
   });
 }
 
-// Simple paragraph helper
-function createParagraph(children: TextRun[], options: { alignment?: any; spaceAfter?: number } = {}): Paragraph {
+function para(
+  runs: TextRun[],
+  opts: {
+    align?: DocxAlignment;
+    spaceBefore?: number;
+    spaceAfter?: number;
+  } = {}
+): Paragraph {
   return new Paragraph({
-    alignment: options.alignment || AlignmentType.LEFT,
-    spacing: { after: options.spaceAfter || 100 },
-    children
+    alignment: opts.align ?? AlignmentType.LEFT,
+    spacing: {
+      before: opts.spaceBefore ?? 0,
+      after: opts.spaceAfter ?? 80,
+    },
+    children: runs,
   });
 }
 
-// Clean border configuration
-const borderNone = { style: BorderStyle.NONE, size: 0, color: 'auto' };
-const borderThin = { style: BorderStyle.SINGLE, size: 4, color: COLOR_BORDER };
+const bdrNone = { style: BorderStyle.NONE, size: 0, color: 'auto' };
+const bdrThin = { style: BorderStyle.SINGLE, size: 4, color: COLOR_BORDER };
+const bdrThick = { style: BorderStyle.SINGLE, size: 8, color: COLOR_PRIMARY };
+
+// Cell borders without table-level inside properties
+const cellBdrNone = { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrNone };
+const cellBdrBottom = { top: bdrNone, bottom: bdrThin, left: bdrNone, right: bdrNone };
+
+// Fetch logo as ArrayBuffer for ImageRun
+async function fetchLogoBuffer(): Promise<ArrayBuffer | null> {
+  try {
+    const b64 = await urlToBase64('/icons/nsvm-logo.png');
+    if (!b64) return null;
+    const base64Data = b64.split(',')[1];
+    if (!base64Data) return null;
+    const binary = atob(base64Data);
+    const buffer = new ArrayBuffer(binary.length);
+    const view = new Uint8Array(buffer);
+    for (let i = 0; i < binary.length; i++) {
+      view[i] = binary.charCodeAt(i);
+    }
+    return buffer;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Main Generator ───────────────────────────────────────────────────────────
 
 export async function downloadQuotationDocx(quotation: Quotation): Promise<void> {
   const totals = calculateQuotationTotals({
@@ -55,389 +105,435 @@ export async function downloadQuotationDocx(quotation: Quotation): Promise<void>
     discountType: quotation.discountType,
     gstPercentage: quotation.gst,
     gstEnabled: quotation.gstEnabled,
-    advance: quotation.advance
+    advance: quotation.advance,
   });
 
-  // 1. Company Header Paragraphs
-  const companyHeaderParagraphs = [
-    createParagraph([
-      createTextRun(quotation.company.companyName, { bold: true, size: 18, color: COLOR_PRIMARY })
-    ], { alignment: AlignmentType.CENTER, spaceAfter: 50 }),
-    
-    createParagraph([
-      createTextRun(quotation.company.tagline, { italic: true, size: 10, color: COLOR_SECONDARY })
-    ], { alignment: AlignmentType.CENTER, spaceAfter: 150 }),
-    
-    createParagraph([
-      createTextRun(`${quotation.company.address}  |  Phone: ${quotation.company.phone}  |  Email: ${quotation.company.email}`, { size: 9, color: COLOR_SECONDARY })
-    ], { alignment: AlignmentType.CENTER, spaceAfter: 50 }),
-    
-    quotation.company.gstNumber ? createParagraph([
-      createTextRun(`GSTIN: ${quotation.company.gstNumber}`, { bold: true, size: 9, color: COLOR_SECONDARY })
-    ], { alignment: AlignmentType.CENTER, spaceAfter: 150 }) : null
-  ].filter(Boolean) as Paragraph[];
+  const co = quotation.company;
+  const cu = quotation.customer;
+  const pr = quotation.project;
 
-  // 2. Title Paragraph
-  const titleParagraph = createParagraph([
-    createTextRun('QUOTATION', { bold: true, size: 16, color: COLOR_PRIMARY })
-  ], { alignment: AlignmentType.CENTER, spaceAfter: 200 });
+  // ── Load logo ──────────────────────────────────────────────────────────────
+  const logoBuffer = await fetchLogoBuffer();
+  const logoRun = logoBuffer
+    ? new ImageRun({
+        type: 'png',
+        data: logoBuffer,
+        transformation: { width: 120, height: 80 },
+        floating: undefined,
+      })
+    : null;
 
-  // 3. Meta Data Table (Quotation No, Date, Validity)
+  // ── Section 1 ─ Company Header ─────────────────────────────────────────────
+  const headerTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: {
+      top: bdrNone, bottom: bdrThick, left: bdrNone, right: bdrNone,
+      insideHorizontal: bdrNone, insideVertical: bdrNone,
+    },
+    rows: [
+      new TableRow({
+        children: [
+          // Left: company text
+          new TableCell({
+            width: { size: logoRun ? 70 : 100, type: WidthType.PERCENTAGE },
+            borders: cellBdrNone,
+            children: [
+              para([txt(co.companyName, { bold: true, size: 18, color: COLOR_PRIMARY })], { spaceAfter: 40 }),
+              ...(co.tagline ? [para([txt(co.tagline, { italic: true, size: 9, color: COLOR_SECONDARY })], { spaceAfter: 40 })] : []),
+              para([txt(co.address, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 30 }),
+              para([
+                txt(`Phone: ${co.phone}`, { size: 9, color: COLOR_SECONDARY }),
+                txt('   |   ', { size: 9, color: COLOR_BORDER }),
+                txt(`Email: ${co.email}`, { size: 9, color: COLOR_SECONDARY }),
+              ], { spaceAfter: 30 }),
+              ...(co.gstNumber
+                ? [para([txt('GSTIN: ', { bold: true, size: 9 }), txt(co.gstNumber, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 0 })]
+                : []),
+            ],
+          }),
+          // Right: logo
+          ...(logoRun
+            ? [
+                new TableCell({
+                  width: { size: 30, type: WidthType.PERCENTAGE },
+                  borders: cellBdrNone,
+                  verticalAlign: VerticalAlign.CENTER,
+                  children: [
+                    new Paragraph({
+                      alignment: AlignmentType.RIGHT,
+                      spacing: { after: 0 },
+                      children: [logoRun],
+                    }),
+                  ],
+                }),
+              ]
+            : []),
+        ],
+      }),
+    ],
+  });
+
+  // ── Section 2 ─ Title ──────────────────────────────────────────────────────
+  const titlePara = para(
+    [txt('QUOTATION', { bold: true, size: 14, color: COLOR_PRIMARY })],
+    { align: AlignmentType.CENTER, spaceBefore: 160, spaceAfter: 160 }
+  );
+
+  // ── Section 3 ─ Meta Table (Quot No / Date / Validity / Prepared By) ──────
   const metaTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
-      top: borderThin,
-      bottom: borderThin,
-      left: borderNone,
-      right: borderNone,
-      insideHorizontal: borderNone,
-      insideVertical: borderNone
+      top: bdrThin, bottom: bdrThin, left: bdrThin, right: bdrThin,
+      insideHorizontal: bdrNone, insideVertical: bdrThin,
     },
     rows: [
       new TableRow({
         children: [
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
-            verticalAlign: VerticalAlign.CENTER,
+            shading: { type: ShadingType.SOLID, fill: COLOR_BG_LIGHT },
+            borders: { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrThin },
             children: [
-              createParagraph([
-                createTextRun('Quotation No: ', { bold: true, size: 10 }),
-                createTextRun(quotation.quotationNumber, { size: 10 })
-              ], { spaceAfter: 40 }),
-              createParagraph([
-                createTextRun('Date: ', { bold: true, size: 10 }),
-                createTextRun(formatDate(quotation.date), { size: 10 })
-              ], { spaceAfter: 0 })
-            ]
+              para([txt('Quotation No: ', { bold: true, size: 9.5 }), txt(quotation.quotationNumber, { size: 9.5 })], { spaceAfter: 30 }),
+              para([txt('Quotation Date: ', { bold: true, size: 9.5 }), txt(formatDate(quotation.date), { size: 9.5 })], { spaceAfter: 30 }),
+              para([txt('Valid Until: ', { bold: true, size: 9.5 }), txt(formatDate(quotation.validUntil), { size: 9.5 })], { spaceAfter: 0 }),
+            ],
           }),
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
-            verticalAlign: VerticalAlign.CENTER,
+            shading: { type: ShadingType.SOLID, fill: COLOR_BG_LIGHT },
+            borders: cellBdrNone,
             children: [
-              createParagraph([
-                createTextRun('Valid Until: ', { bold: true, size: 10 }),
-                createTextRun(formatDate(quotation.validUntil), { size: 10 })
-              ], { alignment: AlignmentType.RIGHT, spaceAfter: 40 }),
-              createParagraph([
-                createTextRun('Prepared By: ', { bold: true, size: 10 }),
-                createTextRun(quotation.preparedBy || 'N/A', { size: 10 })
-              ], { alignment: AlignmentType.RIGHT, spaceAfter: 0 })
-            ]
-          })
-        ]
-      })
-    ]
+              para([txt('Prepared By: ', { bold: true, size: 9.5 }), txt(quotation.preparedBy || 'N/A', { size: 9.5 })], { spaceAfter: 30 }),
+              para([txt('Project / Work: ', { bold: true, size: 9.5 }), txt(pr.name, { size: 9.5 })], { spaceAfter: 0 }),
+            ],
+          }),
+        ],
+      }),
+    ],
   });
 
-  // Separator paragraph
-  const spacer = createParagraph([], { spaceAfter: 150 });
-
-  // 4. Customer & Project Details Table
-  const customerProjectTable = new Table({
+  // ── Section 4 ─ Customer & Project Table ──────────────────────────────────
+  const cpTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
-      top: borderThin,
-      bottom: borderThin,
-      left: borderThin,
-      right: borderThin,
-      insideHorizontal: borderNone,
-      insideVertical: borderThin
+      top: bdrThin, bottom: bdrThin, left: bdrThin, right: bdrThin,
+      insideHorizontal: bdrNone, insideVertical: bdrThin,
     },
     rows: [
+      // Header row
       new TableRow({
         children: [
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
-            shading: { fill: COLOR_BG_HEADER },
-            children: [
-              createParagraph([createTextRun('CUSTOMER DETAILS', { bold: true, size: 10 })], { spaceAfter: 50 })
-            ]
+            shading: { type: ShadingType.SOLID, fill: COLOR_PRIMARY },
+            borders: { top: bdrNone, bottom: bdrThin, left: bdrNone, right: bdrNone },
+            children: [para([txt('CUSTOMER DETAILS', { bold: true, size: 9, color: COLOR_WHITE })], { spaceAfter: 0 })],
           }),
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
-            shading: { fill: COLOR_BG_HEADER },
-            children: [
-              createParagraph([createTextRun('PROJECT DETAILS', { bold: true, size: 10 })], { spaceAfter: 50 })
-            ]
-          })
-        ]
+            shading: { type: ShadingType.SOLID, fill: COLOR_PRIMARY },
+            borders: { top: bdrNone, bottom: bdrThin, left: bdrNone, right: bdrNone },
+            children: [para([txt('SITE / PROJECT DETAILS', { bold: true, size: 9, color: COLOR_WHITE })], { spaceAfter: 0 })],
+          }),
+        ],
       }),
+      // Data row
       new TableRow({
         children: [
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
+            borders: { top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrThin },
             children: [
-              createParagraph([createTextRun(quotation.customer.name, { bold: true, size: 10 })], { spaceAfter: 40 }),
-              quotation.customer.phone ? createParagraph([
-                createTextRun('Phone: ', { bold: true, size: 9, color: COLOR_SECONDARY }),
-                createTextRun(quotation.customer.phone, { size: 9, color: COLOR_SECONDARY })
-              ], { spaceAfter: 40 }) : null,
-              quotation.customer.billingAddress ? createParagraph([
-                createTextRun('Address: ', { bold: true, size: 9, color: COLOR_SECONDARY }),
-                createTextRun(quotation.customer.billingAddress, { size: 9, color: COLOR_SECONDARY })
-              ], { spaceAfter: 0 }) : null
-            ].filter(Boolean) as Paragraph[]
+              para([txt(cu.name, { bold: true, size: 10 })], { spaceAfter: 40 }),
+              ...(cu.phone ? [para([txt('Phone: ', { bold: true, size: 9, color: COLOR_SECONDARY }), txt(cu.phone, { size: 9 })], { spaceAfter: 30 })] : []),
+              ...(cu.billingAddress ? [para([txt(cu.billingAddress, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 0 })] : []),
+            ],
           }),
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
+            borders: cellBdrNone,
             children: [
-              createParagraph([
-                createTextRun('Project: ', { bold: true, size: 9, color: COLOR_SECONDARY }),
-                createTextRun(quotation.project.name, { size: 9 })
-              ], { spaceAfter: 40 }),
-              quotation.project.siteLocation ? createParagraph([
-                createTextRun('Site Location: ', { bold: true, size: 9, color: COLOR_SECONDARY }),
-                createTextRun(quotation.project.siteLocation, { size: 9 })
-              ], { spaceAfter: 0 }) : null
-            ].filter(Boolean) as Paragraph[]
-          })
-        ]
-      })
-    ]
+              ...(pr.siteLocation
+                ? [para([txt(pr.siteLocation, { size: 9 })], { spaceAfter: 0 })]
+                : [para([txt('No site location specified.', { size: 9, italic: true, color: COLOR_SECONDARY })], { spaceAfter: 0 })]),
+            ],
+          }),
+        ],
+      }),
+    ],
   });
 
-  // 5. Work Specification Table Header
-  const workTableHeaderRow = new TableRow({
+  // ── Section 5 ─ Work Items Table ──────────────────────────────────────────
+  const COL_W = [5, 28, 16, 9, 12, 8, 11, 11]; // percentages (sum=100)
+  const hdTxt = (t: string, align: DocxAlignment = AlignmentType.LEFT) =>
+    new TableCell({
+      shading: { type: ShadingType.SOLID, fill: COLOR_PRIMARY },
+      borders: cellBdrNone,
+      children: [para([txt(t, { bold: true, size: 9, color: COLOR_WHITE })], { align, spaceAfter: 0 })],
+    });
+
+  const workHeaderRow = new TableRow({
+    tableHeader: true,
     children: [
-      new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('#', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Description', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0 })] }),
-      new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Dimensions', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Area', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Material', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: 7, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Qty', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Rate (₹)', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] }),
-      new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, shading: { fill: COLOR_PRIMARY }, children: [createParagraph([createTextRun('Amount (₹)', { bold: true, color: COLOR_WHITE, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] })
-    ]
+      hdTxt('#', AlignmentType.CENTER),
+      hdTxt('Work Description'),
+      hdTxt('Dimensions (L×W×H)', AlignmentType.CENTER),
+      hdTxt('Area', AlignmentType.RIGHT),
+      hdTxt('Material / Grade', AlignmentType.CENTER),
+      hdTxt('Qty', AlignmentType.CENTER),
+      hdTxt('Rate (₹)', AlignmentType.RIGHT),
+      hdTxt('Amount (₹)', AlignmentType.RIGHT),
+    ],
   });
 
-  // Dynamic Rows
-  const itemRows = quotation.items.map((item, index) => {
-    // Format dimensions
+  const itemRows: TableRow[] = quotation.items.map((item, idx) => {
     let dimStr = '-';
     if (item.length !== null || item.width !== null || item.height !== null) {
       const parts = [
         item.length !== null ? `${item.length}L` : '',
         item.width !== null ? `${item.width}W` : '',
-        item.height !== null ? `${item.height}H` : ''
+        item.height !== null ? `${item.height}H` : '',
       ].filter(Boolean);
-      dimStr = parts.join(' x ');
+      dimStr = parts.join(' × ');
     }
-    
     const areaStr = item.area !== null ? `${item.area} ${item.unit}` : '-';
+    const rowFill = idx % 2 === 1 ? COLOR_BG_LIGHT : COLOR_WHITE;
+
+    const dc = (text: string, align: DocxAlignment = AlignmentType.LEFT, bold = false) =>
+      new TableCell({
+        shading: { type: ShadingType.SOLID, fill: rowFill },
+        borders: cellBdrBottom,
+        children: [para([txt(text, { size: 9, bold })], { align, spaceAfter: 0 })],
+      });
 
     return new TableRow({
       children: [
-        new TableCell({ width: { size: 5, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun((index + 1).toString(), { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: 30, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(item.description, { size: 9, bold: true })], { spaceAfter: 0 })] }),
-        new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(dimStr, { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(areaStr, { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] }),
-        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(item.material || '-', { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: 7, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(`${item.quantity} ${item.unit}`, { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.CENTER })] }),
-        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(formatCurrency(item.rate).replace('₹', ''), { size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] }),
-        new TableCell({ width: { size: 10, type: WidthType.PERCENTAGE }, children: [createParagraph([createTextRun(formatCurrency(item.amount).replace('₹', ''), { size: 9, bold: true })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })] })
-      ]
+        dc(String(idx + 1), AlignmentType.CENTER),
+        dc(item.description, AlignmentType.LEFT, true),
+        dc(dimStr, AlignmentType.CENTER),
+        dc(areaStr, AlignmentType.RIGHT),
+        dc(item.material || '-', AlignmentType.CENTER),
+        dc(`${item.quantity} ${item.unit}`, AlignmentType.CENTER),
+        dc(formatCurrency(item.rate), AlignmentType.RIGHT),
+        dc(formatCurrency(item.amount), AlignmentType.RIGHT, true),
+      ],
     });
   });
 
-  // Totals Section Sub-table (or appended rows)
-  const totalLabelCell = (text: string, bold = false) => new TableCell({
-    width: { size: 80, type: WidthType.PERCENTAGE },
-    columnSpan: 7,
-    children: [createParagraph([createTextRun(text, { bold, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })]
-  });
+  // Empty state row
+  if (itemRows.length === 0) {
+    itemRows.push(new TableRow({
+      children: [
+        new TableCell({
+          columnSpan: 8,
+          borders: cellBdrBottom,
+          children: [para([txt('No work items added.', { size: 9, italic: true, color: COLOR_SECONDARY })], { align: AlignmentType.CENTER, spaceAfter: 0 })],
+        }),
+      ],
+    }));
+  }
 
-  const totalValueCell = (text: string, bold = false) => new TableCell({
-    width: { size: 20, type: WidthType.PERCENTAGE },
-    children: [createParagraph([createTextRun(text, { bold, size: 9 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })]
-  });
+  // Totals rows appended to the work table
+  const totalsLabel = (text: string, bold = false, fill = COLOR_WHITE, color = COLOR_PRIMARY) =>
+    new TableCell({
+      columnSpan: 7,
+      shading: { type: ShadingType.SOLID, fill },
+      borders: cellBdrBottom,
+      children: [para([txt(text, { size: 9.5, bold, color })], { align: AlignmentType.RIGHT, spaceAfter: 0 })],
+    });
 
-  const totalsRows = [
+  const totalsValue = (text: string, bold = false, fill = COLOR_WHITE, color = COLOR_PRIMARY) =>
+    new TableCell({
+      shading: { type: ShadingType.SOLID, fill },
+      borders: cellBdrBottom,
+      children: [para([txt(text, { size: 9.5, bold, color })], { align: AlignmentType.RIGHT, spaceAfter: 0 })],
+    });
+
+  const totalsRows: TableRow[] = [
+    // Work subtotal
+    new TableRow({ children: [totalsLabel('Work Subtotal:'), totalsValue(formatCurrency(totals.itemsSubtotal))] }),
+
+    // Labour (conditional)
+    ...(quotation.labour > 0
+      ? [new TableRow({ children: [totalsLabel('Labour & Fabrication:'), totalsValue(formatCurrency(quotation.labour))] })]
+      : []),
+
+    // Installation (conditional)
+    ...(quotation.installation > 0
+      ? [new TableRow({ children: [totalsLabel('Installation & Transport:'), totalsValue(formatCurrency(quotation.installation))] })]
+      : []),
+
+    // Subtotal
     new TableRow({
       children: [
-        totalLabelCell('Work Subtotal:'),
-        totalValueCell(formatCurrency(totals.itemsSubtotal))
-      ]
+        totalsLabel('Subtotal:', true, COLOR_BG_LIGHT),
+        totalsValue(formatCurrency(totals.subtotal), true, COLOR_BG_LIGHT),
+      ],
     }),
-    quotation.labour > 0 ? new TableRow({
-      children: [
-        totalLabelCell('Labour / Fabrication charges:'),
-        totalValueCell(formatCurrency(quotation.labour))
-      ]
-    }) : null,
-    quotation.installation > 0 ? new TableRow({
-      children: [
-        totalLabelCell('Installation / Transport charges:'),
-        totalValueCell(formatCurrency(quotation.installation))
-      ]
-    }) : null,
-    new TableRow({
-      children: [
-        totalLabelCell('Subtotal:', true),
-        totalValueCell(formatCurrency(totals.subtotal), true)
-      ]
-    }),
-    quotation.discount > 0 ? new TableRow({
-      children: [
-        totalLabelCell(`Discount (${quotation.discountType === 'percentage' ? `${quotation.discount}%` : 'Fixed'}):`),
-        totalValueCell(`- ${formatCurrency(totals.discountAmount)}`)
-      ]
-    }) : null,
-    quotation.gstEnabled ? new TableRow({
-      children: [
-        totalLabelCell(`GST (${quotation.gst}%):`),
-        totalValueCell(formatCurrency(totals.gstAmount))
-      ]
-    }) : null,
+
+    // Discount (conditional)
+    ...(quotation.discount > 0
+      ? [new TableRow({
+          children: [
+            totalsLabel(`Discount (${quotation.discountType === 'percentage' ? `${quotation.discount}%` : 'Fixed'}):`, false, COLOR_WHITE, COLOR_ROSE),
+            totalsValue(`-${formatCurrency(totals.discountAmount)}`, false, COLOR_WHITE, COLOR_ROSE),
+          ],
+        })]
+      : []),
+
+    // GST (conditional)
+    ...(quotation.gstEnabled
+      ? [new TableRow({ children: [totalsLabel(`GST (${quotation.gst}%):`) , totalsValue(formatCurrency(totals.gstAmount))] })]
+      : []),
+
+    // Grand Total (highlighted)
     new TableRow({
       children: [
         new TableCell({
-          width: { size: 80, type: WidthType.PERCENTAGE },
           columnSpan: 7,
-          shading: { fill: COLOR_BG_HEADER },
-          children: [createParagraph([createTextRun('GRAND TOTAL:', { bold: true, size: 10 })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })]
+          shading: { type: ShadingType.SOLID, fill: COLOR_ACCENT },
+          borders: cellBdrNone,
+          children: [para([txt('GRAND TOTAL:', { bold: true, size: 11, color: COLOR_WHITE })], { align: AlignmentType.RIGHT, spaceAfter: 0 })],
         }),
         new TableCell({
-          width: { size: 20, type: WidthType.PERCENTAGE },
-          shading: { fill: COLOR_BG_HEADER },
-          children: [createParagraph([createTextRun(formatCurrency(totals.grandTotal), { bold: true, size: 10, color: COLOR_PRIMARY })], { spaceAfter: 0, alignment: AlignmentType.RIGHT })]
-        })
-      ]
+          shading: { type: ShadingType.SOLID, fill: COLOR_ACCENT },
+          borders: cellBdrNone,
+          children: [para([txt(formatCurrency(totals.grandTotal), { bold: true, size: 11, color: COLOR_WHITE })], { align: AlignmentType.RIGHT, spaceAfter: 0 })],
+        }),
+      ],
     }),
+
+    // Advance received
+    new TableRow({ children: [totalsLabel('Advance Received:', false, COLOR_WHITE, COLOR_EMERALD), totalsValue(formatCurrency(quotation.advance), false, COLOR_WHITE, COLOR_EMERALD)] }),
+
+    // Balance outstanding
     new TableRow({
       children: [
-        totalLabelCell('Advance Received:'),
-        totalValueCell(formatCurrency(quotation.advance))
-      ]
+        totalsLabel('Balance Outstanding:', true, COLOR_BG_LIGHT, COLOR_ROSE),
+        totalsValue(formatCurrency(totals.balance), true, COLOR_BG_LIGHT, COLOR_ROSE),
+      ],
     }),
-    new TableRow({
-      children: [
-        totalLabelCell('Balance Outstanding:', true),
-        totalValueCell(formatCurrency(totals.balance), true)
-      ]
-    })
-  ].filter(Boolean) as TableRow[];
+  ];
 
   const workTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
+    columnWidths: COL_W.map(w => Math.round((w / 100) * 9360)), // twips (total ~9360 for A4 - margins)
     borders: {
-      top: borderThin,
-      bottom: borderThin,
-      left: borderThin,
-      right: borderThin,
-      insideHorizontal: borderThin,
-      insideVertical: borderThin
+      top: bdrThin, bottom: bdrThin, left: bdrThin, right: bdrThin,
+      insideHorizontal: bdrThin, insideVertical: bdrThin,
     },
-    rows: [
-      workTableHeaderRow,
-      ...itemRows,
-      ...totalsRows
-    ]
+    rows: [workHeaderRow, ...itemRows, ...totalsRows],
   });
 
-  // 6. Additional Remarks Section
-  const remarksBlock = quotation.remarks ? [
-    createParagraph([createTextRun('ADDITIONAL WORK / REMARKS', { bold: true, size: 10 })], { spaceAfter: 50 }),
-    createParagraph([createTextRun(quotation.remarks, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 150 })
-  ] : [];
+  // ── Section 6 ─ Amount in Words ───────────────────────────────────────────
+  const amountInWordsPara = para(
+    [
+      txt('Total Amount in Words: ', { bold: true, size: 9.5 }),
+      txt(numberToWords(totals.grandTotal), { size: 9.5, italic: true }),
+    ],
+    { spaceBefore: 160, spaceAfter: 80 }
+  );
 
-  // 7. Terms & Conditions
-  const termsBlock = quotation.terms && quotation.terms.length > 0 ? [
-    createParagraph([createTextRun('TERMS & CONDITIONS', { bold: true, size: 10 })], { spaceAfter: 50 }),
-    ...quotation.terms.map((term, index) => 
-      createParagraph([
-        createTextRun(`${index + 1}. `, { bold: true, size: 8.5, color: COLOR_SECONDARY }),
-        createTextRun(term, { size: 8.5, color: COLOR_SECONDARY })
-      ], { spaceAfter: 20 })
-    ),
-    createParagraph([], { spaceAfter: 250 })
-  ] : [];
+  // ── Section 7 ─ Remarks ───────────────────────────────────────────────────
+  const remarksBlock: Paragraph[] = quotation.remarks
+    ? [
+        para([txt('ADDITIONAL WORK / REMARKS', { bold: true, size: 10, color: COLOR_PRIMARY })], { spaceBefore: 120, spaceAfter: 40 }),
+        para([txt(quotation.remarks, { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 160 }),
+      ]
+    : [];
 
-  // 9. Signatures Block
-  const signatureTable = new Table({
+  // ── Section 8 ─ Terms & Conditions ───────────────────────────────────────
+  const termsBlock: Paragraph[] = (quotation.terms?.length ?? 0) > 0
+    ? [
+        para([txt('TERMS & CONDITIONS', { bold: true, size: 10, color: COLOR_PRIMARY })], { spaceBefore: 120, spaceAfter: 60 }),
+        ...(quotation.terms ?? []).map((term, i) =>
+          para(
+            [txt(`${i + 1}.  `, { bold: true, size: 8.5, color: COLOR_SECONDARY }), txt(term, { size: 8.5, color: COLOR_SECONDARY })],
+            { spaceAfter: 30 }
+          )
+        ),
+      ]
+    : [];
+
+  // ── Section 9 ─ Signature Block ───────────────────────────────────────────
+  const signTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     borders: {
-      top: borderNone, bottom: borderNone, left: borderNone, right: borderNone,
-      insideHorizontal: borderNone, insideVertical: borderNone
+      top: bdrNone, bottom: bdrNone, left: bdrNone, right: bdrNone,
+      insideHorizontal: bdrNone, insideVertical: bdrNone,
     },
     rows: [
       new TableRow({
         children: [
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
+            borders: cellBdrNone,
             children: [
-              createParagraph([
-                createTextRun('CUSTOMER ACCEPTANCE', { bold: true, size: 10, color: COLOR_SECONDARY })
-              ], { spaceAfter: 400 }),
-              createParagraph([
-                createTextRun('Name: __________________________', { size: 9, color: COLOR_SECONDARY })
-              ], { spaceAfter: 200 }),
-              createParagraph([
-                createTextRun('Signature: ______________________', { size: 9, color: COLOR_SECONDARY })
-              ], { spaceAfter: 0 })
-            ]
+              para([txt('CUSTOMER ACCEPTANCE', { bold: true, size: 9.5, color: COLOR_SECONDARY })], { spaceBefore: 480, spaceAfter: 480 }),
+              para([txt('Name:   ______________________________', { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 200 }),
+              para([txt('Signature:   _________________________', { size: 9, color: COLOR_SECONDARY })], { spaceAfter: 0 }),
+            ],
           }),
           new TableCell({
             width: { size: 50, type: WidthType.PERCENTAGE },
+            borders: cellBdrNone,
             children: [
-              createParagraph([
-                createTextRun(`for ${quotation.company.companyName.toUpperCase()}`, { bold: true, size: 9, color: COLOR_SECONDARY })
-              ], { alignment: AlignmentType.RIGHT, spaceAfter: 500 }),
-              createParagraph([
-                createTextRun('Authorized Signatory / Seal', { size: 9, color: COLOR_SECONDARY })
-              ], { alignment: AlignmentType.RIGHT, spaceAfter: 0 })
-            ]
-          })
-        ]
-      })
-    ]
+              para([txt(`For  ${co.companyName.toUpperCase()}`, { bold: true, size: 9, color: COLOR_SECONDARY })], { align: AlignmentType.RIGHT, spaceBefore: 480, spaceAfter: 600 }),
+              para([txt('Authorized Signatory / Seal', { size: 9, color: COLOR_SECONDARY })], { align: AlignmentType.RIGHT, spaceAfter: 0 }),
+            ],
+          }),
+        ],
+      }),
+    ],
   });
 
-  // Construct Document Object
+  // Footer note
+  const footerPara = para(
+    [txt('Thank you for your business! This is a computer-generated document.', { size: 8, color: COLOR_SECONDARY, italic: true })],
+    { align: AlignmentType.CENTER, spaceBefore: 200, spaceAfter: 0 }
+  );
+
+  // ── Spacer helper ─────────────────────────────────────────────────────────
+  const spacer = para([], { spaceAfter: 200 });
+
+  // ── Assemble Document ─────────────────────────────────────────────────────
   const doc = new Document({
+    creator: co.companyName,
+    title: `Quotation ${quotation.quotationNumber}`,
+    description: `Quotation generated by ${co.companyName}`,
     sections: [
       {
         properties: {
           page: {
-            margin: {
-              top: 1080,    // 0.75 in
-              bottom: 1080,
-              left: 1080,
-              right: 1080
-            }
-          }
+            margin: { top: 864, bottom: 864, left: 1080, right: 1080 }, // ~0.6in top/bottom, 0.75in sides
+          },
         },
         children: [
-          ...companyHeaderParagraphs,
-          titleParagraph,
+          headerTable,
+          titlePara,
           metaTable,
           spacer,
-          customerProjectTable,
+          cpTable,
           spacer,
           workTable,
-          spacer,
+          amountInWordsPara,
           ...remarksBlock,
           ...termsBlock,
-          signatureTable
-        ]
-      }
-    ]
+          signTable,
+          footerPara,
+        ],
+      },
+    ],
   });
 
-  try {
-    // Generate and Download the file
-    const blob = await Packer.toBlob(doc);
-    const filename = `Quotation_${quotation.quotationNumber}.docx`;
-    
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (error) {
-    console.error('Error generating DOCX:', error);
-    throw new Error('Failed to generate Word document. Please try again.');
+  // ── Pack → Blob → Validate → Download ────────────────────────────────────
+  const blob = await Packer.toBlob(doc);
+
+  if (!blob || blob.size === 0) {
+    throw new Error('Word document generation failed — empty output');
   }
+
+  const filename = `Quotation_${quotation.quotationNumber}.docx`;
+  await downloadBlob(blob, filename, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 }
