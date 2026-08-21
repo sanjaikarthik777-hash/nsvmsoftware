@@ -1,4 +1,4 @@
-import html2pdf from 'html2pdf.js/dist/html2pdf.min.js';
+import html2pdf from 'html2pdf.js/dist/html2pdf.bundle.min.js';
 
 export async function downloadQuotationPdf(elementId: string, filename: string): Promise<void> {
   const element = document.getElementById(elementId);

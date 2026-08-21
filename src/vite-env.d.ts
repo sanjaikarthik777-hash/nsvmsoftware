@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 /// <reference types="vite-plugin-pwa/client" />
 
-declare module 'html2pdf.js/dist/html2pdf.min.js' {
+declare module 'html2pdf.js/dist/html2pdf.bundle.min.js' {
   interface Html2PdfOptions {
     margin?: number | number[];
     filename?: string;
