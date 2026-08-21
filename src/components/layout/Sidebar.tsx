@@ -6,9 +6,9 @@ import {
   FileText, 
   Settings as SettingsIcon, 
   Menu, 
-  X, 
-  Hammer 
+  X
 } from 'lucide-react';
+import nsvmLogo from '/nsvm-logo.png';
 
 export const Sidebar: React.FC = () => {
   const { activePage, setActivePage, setEditingQuotationId } = useQuotationStore();
@@ -35,11 +35,7 @@ export const Sidebar: React.FC = () => {
       {/* Mobile Top Navigation Header */}
       <header className="md:hidden no-print flex items-center justify-between bg-slate-900 text-white px-4 py-3 shadow-md sticky top-0 z-40">
         <div className="flex items-center gap-2">
-          <Hammer className="h-5 w-5 text-slate-400" />
-          <div className="font-bold tracking-wider leading-none">
-            <span className="block text-sm">NSVM</span>
-            <span className="block text-[10px] text-slate-400">INDUSTRIES</span>
-          </div>
+          <img src={nsvmLogo} alt="NSVM Industries" className="h-8 w-auto object-contain" />
         </div>
         <button 
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -78,13 +74,7 @@ export const Sidebar: React.FC = () => {
       <aside className="hidden md:flex no-print flex-col w-64 bg-slate-900 text-white min-h-screen border-r border-slate-800 flex-shrink-0 sticky top-0">
         {/* Brand/Header */}
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="bg-slate-800 p-2 rounded-lg border border-slate-700">
-            <Hammer className="h-6 w-6 text-slate-300" />
-          </div>
-          <div>
-            <div className="font-black text-lg tracking-wider leading-none">NSVM</div>
-            <div className="text-xs text-slate-400 font-bold tracking-widest mt-0.5">INDUSTRIES</div>
-          </div>
+          <img src={nsvmLogo} alt="NSVM Industries" className="h-10 w-auto object-contain" />
         </div>
 
         {/* Navigation List */}
