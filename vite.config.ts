@@ -49,8 +49,8 @@ export default defineConfig({
         id: '/',
         name: 'NSVM Industries',
         short_name: 'NSVM',
-        description: 'Quotation and billing management system for NSVM Industries',
-        theme_color: '#111827',
+        description: 'NSVM Industries Quotation & Billing System',
+        theme_color: '#0f172a',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
@@ -58,6 +58,13 @@ export default defineConfig({
         orientation: 'portrait',
         prefer_related_applications: false,
         icons: [
+          {
+            // Primary NSVM branding logo — used in Chrome Install App dialog
+            src: '/icons/nsvm-logo.png',
+            sizes: '1536x1024',
+            type: 'image/png',
+            purpose: 'any'
+          },
           {
             src: '/icons/icon-192.png',
             sizes: '192x192',
