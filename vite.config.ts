@@ -48,9 +48,9 @@ export default defineConfig({
       manifest: {
         id: '/',
         name: 'NSVM Industries',
-        short_name: 'NSVM Billing',
+        short_name: 'NSVM',
         description: 'Quotation and billing management system for NSVM Industries',
-        theme_color: '#0f172a',
+        theme_color: '#111827',
         background_color: '#ffffff',
         display: 'standalone',
         start_url: '/',
