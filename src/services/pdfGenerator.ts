@@ -193,43 +193,23 @@ export async function downloadQuotationPdf(elementId: string, filename: string):
 export async function downloadBlob(
   blob: Blob,
   filename: string,
-  mimeType: string
+  _mimeType: string
 ): Promise<void> {
   const url = URL.createObjectURL(blob);
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  if (
-    isMobile &&
-    typeof navigator.share === 'function' &&
-    typeof navigator.canShare === 'function'
-  ) {
-    try {
-      const file = new File([blob], filename, { type: mimeType });
-      if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: filename });
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
-        return;
-      }
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        return;
-      }
-    }
-  }
-
-  // Standard fallback
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  a.rel = 'noopener';
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
 
+  // Allow enough time for the browser/mobile OS to initiate the download before revoking
   setTimeout(() => {
     if (a.parentNode) {
       document.body.removeChild(a);
     }
     URL.revokeObjectURL(url);
-  }, 3000);
+  }, 4000);
 }
