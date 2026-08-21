@@ -76,8 +76,8 @@ export const Settings: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 1024 * 1024) { // Limit size to 1MB
-      toast.error('Logo image must be smaller than 1MB');
+    if (file.size > 2 * 1024 * 1024) { // Limit size to 2MB
+      toast.error('Logo image must be smaller than 2MB');
       return;
     }
 
@@ -226,7 +226,7 @@ export const Settings: React.FC = () => {
             <div className="border border-slate-100 rounded-xl p-4 bg-slate-50/50 flex flex-col sm:flex-row gap-4 items-center justify-between">
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-slate-700">Company Logo (PNG/JPEG)</label>
-                <p className="text-[10px] text-slate-400">Upload a square/rectangular logo. Maximum file size 1MB.</p>
+                <p className="text-[10px] text-slate-400">Upload a square/rectangular logo. Maximum file size 2MB.</p>
               </div>
               
               <div className="flex items-center gap-3">

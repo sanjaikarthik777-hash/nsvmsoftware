@@ -20,7 +20,7 @@ export const db = new NsvmDatabase();
 export const DEFAULT_SETTINGS: BusinessSettings = {
   companyName: 'NSVM INDUSTRIES',
   tagline: 'Quality Fabrication & Engineering Works',
-  logo: '', // Base64 string can be uploaded later
+  logo: '', // Seeded at runtime from /nsvm-logo.png
   address: 'Plot No. 42, Industrial Area, Sector 5, Gandhinagar, Gujarat - 382010',
   phone: '+91 98765 43210',
   email: 'info@nsvmindustries.com',
@@ -39,13 +39,31 @@ export const DEFAULT_SETTINGS: BusinessSettings = {
   ]
 };
 
+// Convert a URL to a Base64 data URL
+async function urlToBase64(url: string): Promise<string> {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return '';
+  }
+}
+
 // Seeding function
 export async function initializeDatabase() {
   const count = await db.settings.count();
   if (count === 0) {
+    // Fetch the NSVM logo and embed it as the default company logo
+    const logoBase64 = await urlToBase64('/nsvm-logo.png');
     await db.settings.add({
       key: 'business_info',
-      value: DEFAULT_SETTINGS
+      value: { ...DEFAULT_SETTINGS, logo: logoBase64 }
     });
   }
 }
